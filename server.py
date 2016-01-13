@@ -82,8 +82,13 @@ class RequestParser:
             return 'INVALID';
 
         # ends in a '/', we need the index at that directory
-        if (path.endswith('/')):
-            path += 'index.html'
+        if (not path.endswith('.html')
+            and not path.endswith('.css')
+            and not path.endswith('.ico')):
+            if path.endswith('/'):
+                path += 'index.html'
+            else:
+                path += '/index.html'
 
         # return the full path
         if path.startswith('/'):

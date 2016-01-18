@@ -30,24 +30,17 @@ import os.path
 HOST            = "localhost"
 PORT            = 8080
 INVALID_PATH    = "INVALID_PATH"
+INVALID         = "INVALID"
+REDIRECT        = "REDIRECT"
 
 HTML_200    = "HTTP/1.1 200 OK\r\nContent-type:text/html;charset=utf8\r\n\r\n"
-HTML_301    = "HTTP/1.1 301 Moved Permanently\nLocation: "
+HTML_301    = "HTTP/1.1 301 Moved Permanently\r\nLocation: "
 HTML_404    = "HTTP/1.1 404 Not Found\r\nContent-type:text/html;charset=utf8\r\n\r\n<html><body><h2>404 Not Found</h2></body></html>"
 CSS_200     = "HTTP/1.1 200 OK\r\nContent-type:text/css;charset=utf8\r\n\r\n"
 ICO_200     = "HTTP/1.1 200 OK\r\nContent-type:image/x-icon;charset=utf8\r\n\r\n"
+HEADER_END  = "\r\n\r\n"
 
 class ResponseBuilder:
-
-#    def createResponse(self, payload, mimeType):
-#        if mimeType == 'html':
-#            return self.createHTMLResponse(payload)
-#        if mimeType == 'css':
-#            return self.createCSSResponse(payload)
-#        if mimeType == 'ico':
-#            return self.createICOResponse(payload)
-#
-#        return self.create404Resonse()
 
     def create200_HTML(self, payload):
         return HTML_200 + payload
@@ -62,19 +55,13 @@ class ResponseBuilder:
         return HTML_404
 
     def create301(self, payload):
-        return HTML_301 + payload
+        redirection = HTML_301 + "http://" + HOST + ":" + str(PORT) + payload + HEADER_END
+        return redirection
 
 # Parses the request and returns different parts such as the requested
 # path and mime type
 # Includes methods to build a valid response based on the supplied request
 class RequestHandler:
-
-    # A naive method that gets the mime type based on the file description
-    # in the requested path. eg. .html, .css, .ico
-    # TODO: implement a more reliable method of getting the mime type
-    def getMimeType(self, fileName):
-        args = fileName.split('.')
-        return args[-1].lower()
 
     def isFile(self, fileName):
         if (path.endswithignorecase('.html') or
@@ -93,8 +80,6 @@ class RequestHandler:
         rawPath = rawPath.strip(' \t\n\r')
         directories = filter(None, rawPath.split('/'))    # get each directory seperately
 
-        print directories
-
         for dir in directories:
             if dir == '..':
                 if len(directoryStack) == 0:
@@ -104,8 +89,6 @@ class RequestHandler:
             else:
                 directoryStack.append(dir)
 
-        print directoryStack
-
         if len(directoryStack) == 0:
             return "www/"
 
@@ -114,43 +97,27 @@ class RequestHandler:
             cleanPath += "/"
             cleanPath += dir
 
-        print "Clean Path: ", cleanPath
         return cleanPath
         
-    # Returns the requested path
-    # If the path is invalid, eg. the path does not exist or it requests
-    # a file outside of www/, it returns an 'INVALID' flag
-    # If the path ends in '/', it will append 'index.html' to the path
-    def getPath(self, request):
-        # get the path
-        path = request.split( )[1]  # this is the full path
+    def serveResource(self, path, mimeType):
+        rb = ResponseBuilder()
 
-        # cleanPath = self.sanitizePath(path)
+        if mimeType == REDIRECT:
+            return rb.create301(path + "/")
 
-        # return 404, path not valid
-        # if path.find('..') != -1:
-        #     return 'INVALID';
+        # if invalid path or file doesn't exist, return a 404 message
+        if not os.path.isfile(path):
+            return rb.create404()
 
-        # ends in a '/', we need the index at that directory
-
-        #if not isFile():
-        #    path += '/index.html'
-
-        #if (not path.endswith('.html')
-        #    and not path.endswith('.css')
-        #    and not path.endswith('.ico')):
-        #    if path.endswith('/'):
-        #        path += 'index.html'
-        #    else:
-        #        path += '/index.html'
-
-        # return the full path
-        #if path.startswith('/'):
-        #    return 'www' + path
-        #else:
-        #    return 'www/' + path
-
-        return path
+        stream = self.readFile(path)
+        if mimeType == 'html':
+            return rb.create200_HTML(stream)
+        if mimeType == 'css':
+            return rb.create200_CSS(stream)
+        if mimeType == 'ico':
+            return rb.create200_ICO(stream)
+        if mimeType == INVALID:
+            return rb.create404()
 
     # Reads from the requested file and returns the content as
     # a string. Before calling this method, the callee should ensure
@@ -165,78 +132,44 @@ class RequestHandler:
     # on the given request
     def buildResponse(self, request):
 
-        rb = ResponseBuilder()
-
-        path = self.getPath(request)        # requested resource
-        print 'Raw Path: ', path
+        path = request.split( )[1]  # this is the full path
 
         if path.endswith('/'):
             # no redirection required, clean the path and return
             cleanPath = self.sanitizePath(path)
             if (cleanPath == INVALID_PATH):
-                return rb.create404Resonse()
-            cleanPath += 'index.html'
-            mimeType = "html"
-
-            # if invalid path or file doesn't exist, return a 404 message
-            if not os.path.isfile(cleanPath):
-                return rb.create404()
-            # else, we want to create the response using the requested resource
-            else: 
-                stream = self.readFile(cleanPath)
-                return rb.create200_HTML(stream)
+                return self.serveResource(cleanPath, INVALID)
+            else:
+                cleanPath += '/index.html'
+                return self.serveResource(cleanPath, 'html')
 
         elif path.endswith('.html'):
             # no redirection required, clean the path and return the requested html file
             cleanPath = self.sanitizePath(path)
-            print cleanPath
             if (cleanPath == INVALID_PATH):
-                print "Invalid"
-                return rb.create404()
-            mimeType = "html"
-
-            # if invalid path or file doesn't exist, return a 404 message
-            if not os.path.isfile(cleanPath):
-                return rb.create404()
-            # else, we want to create the response using the requested resource
-            else: 
-                print "createing a 200 response"
-                stream = self.readFile(cleanPath)
-                return rb.create200_HTML(stream)
+                return self.serveResource(cleanPath, INVALID)
+            else:
+                return self.serveResource(cleanPath, 'html')
 
         elif path.endswith('.css'):
             # no redirection required, clean the path and return the requested css file
             cleanPath = self.sanitizePath(path)
             if (cleanPath == INVALID_PATH):
-                return rb.create404()
-            mimeType = "css"
-
-            # if invalid path or file doesn't exist, return a 404 message
-            if not os.path.isfile(cleanPath):
-                return rb.create404Resonse()
-            # else, we want to create the response using the requested resource
-            else: 
-                stream = self.readFile(cleanPath)
-                return rb.create200_CSS(stream)
+                return self.serveResource(cleanPath, INVALID)
+            else:
+                return self.serveResource(cleanPath, 'css')
 
         elif path.endswith('.ico'):
             # no redirection required, clean the path and return the requested ico file
             cleanPath = self.sanitizePath(path)
             if (cleanPath == INVALID_PATH):
-                return rb.create404()
-            mimeType = "ico"
-
-            # if invalid path or file doesn't exist, return a 404 message
-            if not os.path.isfile(cleanPath):
-                return rb.create404Resonse()
-            # else, we want to create the response using the requested resource
-            else: 
-                stream = self.readFile(cleanPath)
-                return rb.create200_ICO(stream)
+                return self.serveResource(cleanPath, INVALID)
+            else:
+                return self.serveResource(cleanPath, 'ico')
 
         else: 
             # redirection required, no trailing slash or valid filetype being requested
-            return rb.create301(path + '/')
+            return self.serveResource(path, REDIRECT)
         
 
 # Server class that handles the web requests
